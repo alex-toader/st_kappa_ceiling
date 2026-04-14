@@ -1,4 +1,4 @@
-# The harmonic ceiling of lattice thermal conductivity prediction
+# The harmonic ceiling of lattice thermal conductivity prediction [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19570129.svg)](https://doi.org/10.5281/zenodo.19570129)
 
 Harmonic force constants predict lattice thermal conductivity with R² = 0.86-0.89 across 751 crystalline solids spanning 4.7 orders of magnitude in kappa. The plateau persists across linear, ensemble, and neural network models. The remaining variance maps onto cubic anharmonic coupling strength, which is approximately decoupled from harmonic structure.
 
