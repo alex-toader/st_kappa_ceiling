@@ -110,7 +110,7 @@ Fourteen standard harmonic descriptors predict lattice thermal conductivity with
 
 ## Data availability
 
-All harmonic features, BTE thermal conductivities, and analysis scripts are available at [repository URL]. The underlying force constants are from PhononDB [7].
+All harmonic features, BTE thermal conductivities, analysis scripts, and 37 reproducibility tests are publicly available at https://github.com/alex-toader/st_kappa_ceiling (DOI: 10.5281/zenodo.19570129). The underlying force constants are from PhononDB [7].
 
 ## References
 
@@ -120,7 +120,7 @@ All harmonic features, BTE thermal conductivities, and analysis scripts are avai
 [4] W. Li et al., ShengBTE: a solver of the Boltzmann transport equation for phonons, Comput. Phys. Commun. 185, 1747 (2014).
 [5] A. Togo et al., Distributions of phonon lifetimes in Brillouin zones, Phys. Rev. B 91, 094306 (2015).
 [6] L. Lindsay, First principles Peierls-Boltzmann phonon thermal transport, in Nanoscale Energy Transport, IOP, 2020.
-[7] A. Togo, L. Chaput, T. Tanaka, and I. Tanaka, Implementation strategies in phonopy and phono3py, J. Phys.: Condens. Matter 35, 353001 (2023). PhononDB: https://phonondb.mtl.kyoto-u.ac.jp
+[7] A. Togo, L. Chaput, T. Tadano, and I. Tanaka, Implementation strategies in phonopy and phono3py, J. Phys.: Condens. Matter 35, 353001 (2023). PhononDB: https://phonondb.mtl.kyoto-u.ac.jp
 [8] L. Lindsay and D.A. Broido, Three-phonon phase space and lattice thermal conductivity in semiconductors, J. Phys.: Condens. Matter 20, 165209 (2008).
 [9] G.A. Slack, Nonmetallic crystals with high thermal conductivity, J. Phys. Chem. Solids 34, 321 (1973).
 [10] D.T. Morelli and G.A. Slack, High lattice thermal conductivity solids, in High Thermal Conductivity Materials, Springer, 2006.

@@ -1,4 +1,4 @@
-\documentclass[aps,prm,reprint,onecolumn,superscriptaddress]{revtex4-2}
+\documentclass[aps,prm,reprint,onecolumn,groupedaddress]{revtex4-2}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{hyperref}
@@ -8,9 +8,11 @@
 
 \title{What harmonic phonon calculations capture --- and miss --- about thermal conductivity}
 
-\author{Alexandru Toader}
-\affiliation{Independent researcher, Buz\u{a}u, Romania}
-\email{toader\_alexandru@yahoo.com}
+\author{Alexandru Toader\\
+\textit{Independent researcher, Buz\u{a}u, Romania}\\
+toader\_alexandru@yahoo.com}
+
+\noaffiliation
 
 \begin{abstract}
 Harmonic force constants predict lattice thermal conductivity with cross-validated $R^2 = 0.86$--$0.89$ across 751 crystalline solids spanning 4.7 orders of magnitude in $\kappa$, using 14 standard phonon descriptors. The plateau persists across linear, ensemble, and neural network models and does not improve with additional engineered features. The remaining variance is primarily correlated with cubic coupling strength $|V_3|^2$, which is weakly coupled to harmonic bond stiffness after controlling for atomic mass (partial $r = -0.05$). The prediction ceiling arises not because models are insufficient, but because anharmonic scattering is approximately decoupled from harmonic structure. Rigid oxides and layered compounds illustrate this decoupling most clearly.
@@ -123,7 +125,7 @@ Fourteen standard harmonic descriptors predict lattice thermal conductivity with
 
 \section*{Data availability}
 
-All harmonic features, BTE thermal conductivities, and analysis scripts are available at [repository URL]. The underlying force constants are from PhononDB~\cite{togo2023}.
+All harmonic features, BTE thermal conductivities, analysis scripts, and 37 reproducibility tests across four test files (ceiling, residual, independence, outliers) are publicly available at \url{https://github.com/alex-toader/st_kappa_ceiling} (DOI: \href{https://doi.org/10.5281/zenodo.19570129}{10.5281/zenodo.19570129}). The underlying force constants are from PhononDB~\cite{togo2023}.
 
 \begin{thebibliography}{13}
 \bibitem{cahill2003} D.~G. Cahill \textit{et al.}, J. Appl. Phys. \textbf{93}, 793 (2003).
@@ -132,7 +134,7 @@ All harmonic features, BTE thermal conductivities, and analysis scripts are avai
 \bibitem{li2014} W.~Li \textit{et al.}, Comput. Phys. Commun. \textbf{185}, 1747 (2014).
 \bibitem{togo2015} A.~Togo, L.~Chaput, and I.~Tanaka, Phys. Rev. B \textbf{91}, 094306 (2015).
 \bibitem{lindsay2020} L.~Lindsay, in \textit{Nanoscale Energy Transport} (IOP, 2020).
-\bibitem{togo2023} A.~Togo, L.~Chaput, T.~Tanaka, and I.~Tanaka, J. Phys.: Condens. Matter \textbf{35}, 353001 (2023).
+\bibitem{togo2023} A.~Togo, L.~Chaput, T.~Tadano, and I.~Tanaka, J. Phys.: Condens. Matter \textbf{35}, 353001 (2023).
 \bibitem{lindsay2008} L.~Lindsay and D.~A. Broido, J. Phys.: Condens. Matter \textbf{20}, 165209 (2008).
 \bibitem{slack1973} G.~A. Slack, J. Phys. Chem. Solids \textbf{34}, 321 (1973).
 \bibitem{morelli2006} D.~T. Morelli and G.~A. Slack, in \textit{High Thermal Conductivity Materials} (Springer, 2006).
