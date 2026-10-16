@@ -38,7 +38,9 @@ plt.rcParams.update({
     'ytick.labelsize': 8, 'legend.fontsize': 8, 'figure.dpi': 300,
 })
 
-BTE_ARTIFACTS = {1105, 9497, 4823}
+KAPPA_ARTIFACTS = {1105, 9497, 4823}
+STRUCTURE_MISMATCH = {776016, 625739}       # K2O, Al(OH)3: the κ record and the harmonic record belong to different structures
+SEEDS = tuple(range(10))                    # the ten fold assignments of the repeated 10-fold cross-validation
 
 EN_PAULING = {
     'H':2.20,'Li':0.98,'Be':1.57,'B':2.04,'C':2.55,'N':3.04,'O':3.44,'F':3.98,
@@ -79,7 +81,7 @@ def load_data():
         dfs[key] = pd.read_csv(os.path.join(DATA, fname))
         dfs[key]['mp_id'] = dfs[key]['mp_id'].astype(int)
 
-    kb = pd.read_csv(os.path.join(DATA, 'kappa_bte_all.csv'))
+    kb = pd.read_csv(os.path.join(DATA, 'kappa_rta_phonondb.csv'))
     kb['mp_id'] = kb['mp_id'].astype(int)
 
     m = dfs['mesh'][['mp_id', 'material', 'v_LA_m_per_s', 'v_TA_m_per_s',
@@ -90,16 +92,17 @@ def load_data():
     m = m.merge(dfs['debye'][['mp_id', 'theta_D_m2_K']], on='mp_id')
     m = m.merge(dfs['spectral'][['mp_id', 'spectral_spread', 'freq_gap_max_THz',
                                   'frac_sv2_below_median', 'spectral_entropy']], on='mp_id')
-    m = m.merge(kb[['mp_id', 'k_bte_avg']], on='mp_id')
+    m = m.merge(kb[['mp_id', 'k_rta_avg']], on='mp_id')
     m = m.merge(dfs['sg'][['mp_id', 'crystal_system']], on='mp_id')
     m = m.merge(dfs['ps'][['mp_id', 'w_mean']], on='mp_id', how='left')
 
     m['sound_velocity_unresolved'] = m['sound_velocity_unresolved'].astype(bool)
     m = m[~m.sound_velocity_unresolved]
-    m = m.dropna(subset=['k_bte_avg'])
-    m = m[~m.mp_id.isin(BTE_ARTIFACTS)]
+    m = m.dropna(subset=['k_rta_avg'])
+    m = m[~m.mp_id.isin(KAPPA_ARTIFACTS)]
+    m = m[~m.mp_id.isin(STRUCTURE_MISMATCH)]
 
-    m['log_k'] = np.log10(m['k_bte_avg'])
+    m['log_k'] = np.log10(m['k_rta_avg'])
     m['log_v_LA'] = np.log10(m['v_LA_m_per_s'])
     m['log_v_TA'] = np.log10(m['v_TA_m_per_s'])
     m['log_mass'] = np.log10(m['avg_mass_AMU'])
@@ -117,9 +120,13 @@ def load_data():
         rta = rta[rta.kappa_rta < 1000].copy()
         rta['log_krta'] = np.log10(rta['kappa_rta'].clip(lower=0.01))
         rta['log_gamma'] = np.log10(rta['gamma_transport'].clip(lower=1e-8))
-        rta['log_V3sq'] = rta['log_gamma'] - np.log10(rta['w_mean_rta'].clip(lower=1e-8)) if 'w_mean_rta' in rta.columns else rta['log_gamma']
 
     return m, rta
+
+
+def _oof_mean(make_model, X, y):
+    """The out-of-fold prediction averaged over the ten fold assignments."""
+    return np.mean([cross_val_predict(make_model(), X, y, cv=KFold(10, shuffle=True, random_state=s)) for s in SEEDS], axis=0)
 
 
 def _features(m):
@@ -153,13 +160,12 @@ def fig1_ceiling(m):
     feat = _features(m)
     X = m[feat].values
     y = m['log_k'].values
-    cv = KFold(10, shuffle=True, random_state=42)
 
     fig, axes = plt.subplots(1, 3, figsize=(10, 3.3), sharex=True, sharey=True)
-    for ax, (name, model) in zip(axes, [('Ridge', _ridge()), ('GB', _gb()), ('MLP', _mlp())]):
-        pred = cross_val_predict(model, X, y, cv=cv)
-        scores = cross_val_score(model, X, y, cv=cv, scoring='r2')
-        r2_mean = np.mean(scores)
+    for ax, (name, model) in zip(axes, [('Ridge', _ridge), ('GB', _gb), ('MLP', _mlp)]):
+        pred = _oof_mean(model, X, y)
+        scores = np.concatenate([cross_val_score(model(), X, y, cv=KFold(10, shuffle=True, random_state=s), scoring='r2') for s in SEEDS])
+        r2_mean = np.mean(scores)                                                     # the mean over the ten assignments of the fold mean (equal fold counts)
         r2_std = np.std(scores)
         ax.scatter(y, pred, s=6, alpha=0.4, c='steelblue', edgecolors='none')
         ax.plot([-1, 3.5], [-1, 3.5], 'k--', lw=0.8)
@@ -188,19 +194,17 @@ def fig2_residual(m, rta):
 
     X = mr[feat_w].values
     y = mr['log_k'].values
-    cv = KFold(10, shuffle=True, random_state=42)
-    pred = cross_val_predict(_ridge(), X, y, cv=cv)
-    resid = y - pred
+    resid = y - _oof_mean(_ridge, X, y)                                               # plotted: the residual averaged over the ten assignments
 
     fig, ax = plt.subplots(figsize=(5, 4))
     sc = ax.scatter(mr['log_gamma'].values, resid, s=12, alpha=0.5,
                     c='steelblue', edgecolors='none')
 
     from scipy.stats import pearsonr
-    r, p = pearsonr(mr['log_gamma'].values, resid)
-    ax.set_xlabel('log₁₀(Γ)  [scattering rate]')
+    r = np.mean([pearsonr(mr['log_gamma'].values, y - cross_val_predict(_ridge(), X, y, cv=KFold(10, shuffle=True, random_state=s)))[0] for s in SEEDS])   # the text's r
+    ax.set_xlabel('log₁₀(Γ / THz)  [scattering rate]')
     ax.set_ylabel('Harmonic residual  [log₁₀(κ) − predicted]')
-    ax.set_title(f'r = {r:.3f}')
+    ax.set_title(f'r = {r:.2f}')
     ax.axhline(0, color='gray', lw=0.5)
 
     fig.tight_layout()
@@ -237,7 +241,7 @@ def fig3_stiffness(m, rta):
     v3_resid = mr['log_V3sq'].values - LinearRegression().fit(mass_vals, mr['log_V3sq'].values).predict(mass_vals)
     r_partial, _ = pearsonr(fc_resid, v3_resid)
     ax.set_xlabel('log₁₀(fc_mean)')
-    ax.set_ylabel('log₁₀(|V₃|²)')
+    ax.set_ylabel('log₁₀(|V₃|²)  [arbitrary units]')
     ax.set_title(f'r = {r_raw:.3f}  (partial|mass = {r_partial:.2f})')
 
     fig.tight_layout()
@@ -259,9 +263,7 @@ def fig4_outliers(m, rta):
 
     X = mr[feat].values
     y = mr['log_k'].values
-    cv = KFold(10, shuffle=True, random_state=42)
-    pred = cross_val_predict(_ridge(), X, y, cv=cv)
-    resid = y - pred
+    resid = y - _oof_mean(_ridge, X, y)
 
     mr = mr.copy()
     mr['resid'] = resid
@@ -284,9 +286,9 @@ def fig4_outliers(m, rta):
 
     for _, row in mr[is_perov | is_layer].iterrows():
         ax.annotate(row['material'], (row['log_V3sq'], row['resid']),
-                    fontsize=6, alpha=0.8, xytext=(3, 3), textcoords='offset points')
+                    fontsize=6, alpha=0.8, xytext=(3, -8) if row['material'] in ('GaS', 'WSe2') else (3, 3), textcoords='offset points')   # GaS and WSe2 below their points, clear of GaSe and GaTe
 
-    ax.set_xlabel('log₁₀(|V₃|²)')
+    ax.set_xlabel('log₁₀(|V₃|²)  [arbitrary units]')
     ax.set_ylabel('Harmonic residual')
     ax.axhline(0, color='gray', lw=0.5)
     ax.legend(loc='lower left')
@@ -316,11 +318,8 @@ def fig5_learning(m):
             cv = KFold(min(5, len(X_sub)), shuffle=True, random_state=42)
 
             for name, model in [('Ridge', _ridge()), ('GB', _gb()), ('MLP', _mlp())]:
-                try:
-                    scores = cross_val_score(model, X_sub, y_sub, cv=cv, scoring='r2')
-                    results[name].append((n, np.mean(scores)))
-                except Exception:
-                    results[name].append((n, np.nan))
+                scores = cross_val_score(model, X_sub, y_sub, cv=cv, scoring='r2')              # a failure stops the figure (no silent NaN)
+                results[name].append((n, np.mean(scores)))
 
     fig, ax = plt.subplots(figsize=(5, 3.5))
     colors = {'Ridge': 'steelblue', 'GB': 'darkorange', 'MLP': 'seagreen'}
@@ -337,7 +336,7 @@ def fig5_learning(m):
         ax.errorbar(unique_n, means, yerr=stds, marker='o', ms=4, lw=1.2,
                     label=name, color=colors[name], capsize=3)
 
-    ax.set_xlabel('Training set size')
+    ax.set_xlabel('Subset size N (5 random subsets, 5-fold CV within each)')
     ax.set_ylabel('Cross-validated R²')
     ax.legend()
     ax.set_ylim(0, 1)

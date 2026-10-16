@@ -1,4 +1,4 @@
-material,mp_id,k_bte_xx,k_bte_yy,k_bte_zz,k_bte_avg
+material,mp_id,k_rta_xx,k_rta_yy,k_rta_zz,k_rta_avg
 Ag2SeO4,11641,0.27,0.18,0.43,0.29
 AgAuCl4,570340,0.12,0.17,0.23,0.17
 AgI,22894,2.62,2.62,2.85,2.69

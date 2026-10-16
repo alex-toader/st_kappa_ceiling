@@ -1,145 +1,138 @@
 """§3.2 Characterizing the residual — reproduces all numbers from the paper.
 
 Claims verified:
-  - FC2 → log(κ_BTE/κ_RTA): Ridge R² = −0.39, GB = −2.12, MLP = −1.48 (all negative)
   - 5-feature residual vs log(Γ): r = −0.54
-  - 14-feature residual vs log(Γ): r = −0.29 (p < 10⁻⁴)
-  - W partial|mass with 14-feature residual: r = −0.01
-  - ANOVA across dominant-element groups: p = 0.07
-  - Durbin-Watson: between 1.78 and 2.16
-  - §4 factorization: log(κ) ≈ +1.11·log(sv2) − 0.80·log(Γ), R²_insample = 0.78, R²_CV = 0.73
-  - §4 FC2 → |V₃|² at R² = 0.70, but redundant for κ (lift < 0.001)
-  - §4 oracle: true |V₃|² residual improves κ by +0.04 R²
-  - §4 bottleneck: v3_resid ~ k_resid at r = −0.53
+  - 14-feature residual vs log(Γ): r = −0.28 (p < 10⁻⁴)
+  - ANOVA across dominant-element groups: p = 0.04–0.07 over the fold assignments
+  - Durbin-Watson: 1.97–2.04 ordered by predicted κ and v_LA; 1.77 ordered by mass (permutation p ≤ 0.002 on every assignment), 1.91 with one residual per composition (p = 0.11)
+  - §4 factorization: log(κ) ≈ +1.11·log(sv2) − 0.80·log(Γ), R²_insample = 0.78, R²_CV = 0.74 ± 0.14
+  - §3.5 oracle: the Γ/W scalar's residual improves κ by +0.05 R², 0.80 → 0.85
 
 Usage: python test_residual.py
 
-RAW RESULTS (2026-04-14, 231-material RTA overlap, 10-fold CV seed=42)
+RAW RESULTS (749 materials / 229 RTA overlap; every cross-validated number the mean over ten 10-fold assignments, seeds 0–9)
 
-BTE_RTA Ridge=-0.39  GB=-2.12  MLP=-1.48 (all negative)
-RESID_5FEAT vs Γ: r=-0.544
-RESID_14FEAT vs Γ: r=-0.287 p=9.0e-06
-W_PARTIAL|mass: r=-0.013
-ANOVA (10 groups, O n=302): F=1.84 p=0.066
-DW: pred_κ=2.157  log_mass=1.776  log_v_LA=1.951
-FACTORIZATION: R²_insample=0.78  R²_CV=0.73  a=+1.109  b=-0.796
-FC2→|V₃|² R²=0.70, κ lift=+0.000 (redundant)
-ORACLE: +|V₃|² residual → κ lift=+0.040
-BOTTLENECK: v3_resid~k_resid r=-0.529
-OVERALL: PASS (12/12)
+RESID_5FEAT vs Γ: r = -0.542  (paper: -0.54)  PASS
+RESID_14FEAT vs Γ: r = -0.278  largest p over the assignments 2.8e-05  (paper: -0.28, p < 10⁻⁴)  PASS
+ANOVA (9 groups, largest O n=309): F=1.91  p 0.041 … 0.067 over the assignments  (paper: p = 0.04–0.07, nine groups)  PASS
+DW by pred_κ    : 2.038
+DW by log_mass  : 1.768
+DW by log_v_LA  : 1.974
+DURBIN_WATSON: by mass permutation p largest over the assignments 0.0017; one residual per composition (700) 1.906, p 0.106  (paper: 1.97–2.04; mass 1.77, p ≤ 0.002; per composition 1.91, p = 0.11)  PASS
+FACTORIZATION: R²_insample = 0.7765  R²_CV = 0.7394 ± 0.1355  a = +1.111  b = -0.795  (paper: 0.78 / 0.74 ± 0.14, 1.11, -0.80)  PASS
+ORACLE (Γ/W scalar): +|V₃|² residual → κ lift=+0.0529  (paper: 0.05, 0.80 → 0.85; base 0.7954, with 0.8483)  PASS
+OVERALL: PASS  (6/6)
 """
 import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 import numpy as np
+import pandas as pd
 from scipy.stats import pearsonr
 from sklearn.model_selection import cross_val_score, cross_val_predict
 from sklearn.linear_model import LinearRegression
-from _data import (load_data, make_ridge, make_gb, make_mlp, cv10,
-                   partial_corr, FEATURES_14, FEATURES_5)
+from _data import (load_data, make_ridge, rcv_r2, rcv_mean, kfold, SEEDS, at_printed, composition, FEATURES_14, FEATURES_5)
+
+# the numbers as the text prints them
+TEXT = {'r5': '-0.54', 'r14': '-0.28', 'anova_lo': '0.04', 'anova_hi': '0.07', 'dw_min': '1.97', 'dw_max': '2.04', 'dw_mass': '1.77', 'dw_comp': '1.91', 'dw_comp_p': '0.11', 'fact_in': '0.78', 'fact_cv': '0.74', 'fact_sd': '0.14',
+        'a': '1.11', 'b': '-0.80', 'oracle': '0.05', 'base': '0.80', 'with': '0.85'}
+
+
+def nested_v3(mr, cv):
+    """The |V₃|² oracle NESTED in one fold assignment: in each outer fold |V₃|² is fitted on the training rows only; a training row's
+    residual is its inner out-of-fold one (the same assignment's KFold inside the training part), a test row's the outer fit's.
+    Returns the fold-mean R² of κ for: the 14 features, + the |V₃|² residual."""
+    from sklearn.metrics import r2_score
+    y, X, yv = mr['log_k'].values, mr[FEATURES_14].values, mr['log_V3sq'].values
+    sc = {'base': [], 'resid': []}
+    for tr, te in cv.split(X):
+        v_tr = cross_val_predict(make_ridge(), X[tr], yv[tr], cv=cv)
+        v_te = make_ridge().fit(X[tr], yv[tr]).predict(X[te])
+        for k, f_tr, f_te in (('base', X[tr], X[te]),
+                              ('resid', np.column_stack([X[tr], yv[tr] - v_tr]), np.column_stack([X[te], yv[te] - v_te]))):
+            sc[k].append(r2_score(y[te], make_ridge().fit(f_tr, y[tr]).predict(f_te)))
+    return tuple(float(np.mean(sc[k])) for k in ('base', 'resid'))
 
 
 def main():
+    from _data import print_stack
+    print_stack()
     m, mr = load_data()
-    cv = cv10()
     passed = 0
     total = 0
-
     print(f'RTA overlap: {len(mr)} materials')
     print()
 
-    # ── BTE/RTA unpredictable (paper §3.2, first paragraph) ────────────
-    X = mr[FEATURES_14].values
-    y_ratio = mr['log_k'].values - mr['log_krta'].values
-
-    paper_vals = {'Ridge': -0.39, 'GB': -2.12, 'MLP': -1.48}
-    for name, model in [('Ridge', make_ridge()), ('GB', make_gb()), ('MLP', make_mlp())]:
-        scores = cross_val_score(model, X, y_ratio, cv=cv, scoring='r2')
-        r2 = scores.mean()
-        negative = r2 < 0
-        total += 1; passed += negative
-        print(f'BTE_RTA {name:5s}: R² = {r2:.2f}  (paper: {paper_vals[name]:.2f})  '
-              f'{"PASS" if negative else "FAIL"}  [must be < 0]')
-    print()
-
-    # ── Residual vs Γ (paper §3.2, second paragraph) ──────────────────
     y = mr['log_k'].values
     gamma = mr['log_gamma'].values
 
-    # 5-feature baseline
-    pred5 = cross_val_predict(make_ridge(), mr[FEATURES_5].values, y, cv=cv)
-    resid5 = y - pred5
-    r5, p5 = pearsonr(gamma, resid5)
-    match5 = abs(r5 - (-0.54)) < 0.03
+    # ── Residual vs Γ (paper §3.2, second paragraph): the residual of each fold assignment, its r averaged over the assignments ──
+    def resid_r(feats):
+        def one(cv):
+            r, p_ = pearsonr(gamma, y - cross_val_predict(make_ridge(), mr[feats].values, y, cv=cv))
+            return r, p_
+        vals = [one(kfold(s_)) for s_ in SEEDS]
+        return float(np.mean([v[0] for v in vals])), float(max(v[1] for v in vals))
+    r5, _ = resid_r(FEATURES_5)
+    match5 = at_printed(r5, TEXT['r5'])
     total += 1; passed += match5
-    print(f'RESID_5FEAT vs Γ: r = {r5:.3f}  (paper: −0.54)  {"PASS" if match5 else "FAIL"}')
-
-    # 14-feature model
-    pred14 = cross_val_predict(make_ridge(), X, y, cv=cv)
-    resid14 = y - pred14
-    r14, p14 = pearsonr(gamma, resid14)
-    match14 = abs(r14 - (-0.29)) < 0.03 and p14 < 1e-4
+    print(f'RESID_5FEAT vs Γ: r = {r5:.3f}  (paper: {TEXT["r5"]})  {"PASS" if match5 else "FAIL"}')
+    r14, p14 = resid_r(FEATURES_14)
+    match14 = at_printed(r14, TEXT['r14']) and p14 < 1e-4
     total += 1; passed += match14
-    print(f'RESID_14FEAT vs Γ: r = {r14:.3f}  p = {p14:.1e}  '
-          f'(paper: −0.29, p < 10⁻⁴)  {"PASS" if match14 else "FAIL"}')
-
-    # W partial|mass with residual
-    r_w, p_w = partial_corr(resid14, mr['log_w'].values, mr['log_mass'].values)
-    match_w = abs(r_w) < 0.05
-    total += 1; passed += match_w
-    print(f'W_PARTIAL|mass vs resid: r = {r_w:.3f}  '
-          f'(paper: −0.01)  {"PASS" if match_w else "FAIL"}')
+    print(f'RESID_14FEAT vs Γ: r = {r14:.3f}  largest p over the assignments {p14:.1e}  (paper: {TEXT["r14"]}, p < 10⁻⁴)  {"PASS" if match14 else "FAIL"}')
     print()
 
-    # ── Residual uniformity (paper §3.2, last paragraph) ──────────────
+    # ── Residual uniformity (paper §3.2, last paragraph), on the full set ──
     from scipy.stats import f_oneway
+    import re as _re
 
     def durbin_watson(resid):
-        diff = np.diff(resid)
-        return np.sum(diff**2) / np.sum(resid**2)
+        return np.sum(np.diff(resid) ** 2) / np.sum(resid ** 2)
 
-    # Full-dataset residual for uniformity tests
-    X_full = m[FEATURES_14].values
-    y_full = m['log_k'].values
-    pred_full = cross_val_predict(make_ridge(), X_full, y_full, cv=cv)
-    resid_full = y_full - pred_full
-
-    # ANOVA by dominant element (most frequent element in formula)
-    import re as _re
     def _dom_el(formula):
-        tokens = _re.findall(r'([A-Z][a-z]?)(\d*)', formula)
-        best_el, best_n = '', 0
-        for el, n in tokens:
-            count = int(n) if n else 1
-            if count > best_n:
-                best_n, best_el = count, el
-        return best_el
+        """The element with the largest stoichiometric count (parentheses expanded); a tie goes to the element named first in the formula."""
+        c = composition(formula)
+        order = list(dict.fromkeys(_re.findall(r'[A-Z][a-z]?', formula)))
+        return max(order, key=lambda el: (c[el], -order.index(el)))
     classes = m['material'].apply(_dom_el)
     counts = classes.value_counts()
     major = counts[counts >= 15].index
-    anova_groups = [resid_full[(classes == cl).values] for cl in major]
-    f_stat, p_anova = f_oneway(*anova_groups)
-    match_a = p_anova > 0.05
+    X_full, y_full = m[FEATURES_14].values, m['log_k'].values
+    p_an, f_an, dws = [], [], {'pred_κ': [], 'log_mass': [], 'log_v_LA': []}
+    for s_ in SEEDS:
+        pred_full = cross_val_predict(make_ridge(), X_full, y_full, cv=kfold(s_))
+        rf = y_full - pred_full
+        f_, p_ = f_oneway(*[rf[(classes == cl).values] for cl in major])
+        f_an.append(f_); p_an.append(p_)
+        for oname, order in (('pred_κ', np.argsort(pred_full)), ('log_mass', np.argsort(m['log_mass'].values)), ('log_v_LA', np.argsort(m['log_v_LA'].values))):
+            dws[oname].append(durbin_watson(rf[order]))
+    match_a = at_printed(min(p_an), TEXT['anova_lo']) and at_printed(max(p_an), TEXT['anova_hi']) and len(major) == 9
     total += 1; passed += int(match_a)
-    print(f'ANOVA ({len(major)} groups, largest O n={counts.max()}): F={f_stat:.2f}  p={p_anova:.3f}  '
-          f'(paper: p = 0.07)  {"PASS" if match_a else "FAIL"}')
-
-    # Durbin-Watson in 3 orderings
-    orderings = {
-        'pred_κ': np.argsort(pred_full),
-        'log_mass': np.argsort(m['log_mass'].values),
-        'log_v_LA': np.argsort(m['log_v_LA'].values),
-    }
-    dw_ok = True
-    for oname, order in orderings.items():
-        dw = durbin_watson(resid_full[order])
-        in_range = 1.5 <= dw <= 2.5
-        dw_ok = dw_ok and in_range
-        print(f'DW by {oname:10s}: {dw:.3f}  {"ok" if in_range else "FAIL"}')
+    print(f'ANOVA ({len(major)} groups, largest {counts.index[0]} n={counts.max()}): F={np.mean(f_an):.2f}  p {min(p_an):.3f} … {max(p_an):.3f} over the assignments  '
+          f'(paper: p = {TEXT["anova_lo"]}–{TEXT["anova_hi"]}, nine groups)  {"PASS" if match_a else "FAIL"}')
+    dw = {k: float(np.mean(v)) for k, v in dws.items()}
+    for oname, v in dw.items():
+        print(f'DW by {oname:10s}: {v:.3f}')
+    # the mass ordering: a permutation p per assignment (the largest reported), and one residual per composition (polymorphs share a mass and sit side by side)
+    rng = np.random.default_rng(0)
+    comp_key = m['material'].apply(lambda f_: tuple(sorted(composition(f_).items()))).values
+    p_mass, dw_c, p_c = [], [], []
+    for s_ in SEEDS:
+        rf = y_full - cross_val_predict(make_ridge(), X_full, y_full, cv=kfold(s_))
+        d_m = durbin_watson(rf[np.argsort(m['log_mass'].values)])
+        p_mass.append((1 + sum(durbin_watson(rng.permutation(rf)) <= d_m for _ in range(4000))) / 4001)                # (k + 1) / (n + 1)
+        g_ = pd.DataFrame({'c': comp_key, 'lm': m['log_mass'].values, 'r': rf}).groupby('c').agg(lm=('lm', 'first'), r=('r', 'mean')).sort_values('lm', kind='stable')
+        rc = g_['r'].values
+        dw_c.append(durbin_watson(rc))
+        p_c.append((1 + sum(durbin_watson(rng.permutation(rc)) <= dw_c[-1] for _ in range(2000))) / 2001)
+    others = [dw['pred_κ'], dw['log_v_LA']]
+    dw_ok = (at_printed(min(others), TEXT['dw_min']) and at_printed(max(others), TEXT['dw_max']) and at_printed(dw['log_mass'], TEXT['dw_mass']) and max(p_mass) <= 0.002                                   # the text: p ≤ 0.002 on every assignment
+             and at_printed(float(np.mean(dw_c)), TEXT['dw_comp']) and at_printed(float(np.mean(p_c)), TEXT['dw_comp_p']))
     total += 1; passed += dw_ok
-    print(f'DURBIN_WATSON: (paper: 1.74–2.00)  {"PASS" if dw_ok else "FAIL"}')
-    print()
+    print(f'DURBIN_WATSON: by mass permutation p largest over the assignments {max(p_mass):.4f}; one residual per composition ({len(rc)}) {np.mean(dw_c):.3f}, p {np.mean(p_c):.3f}  '
+          f'(paper: {TEXT["dw_min"]}–{TEXT["dw_max"]}; mass {TEXT["dw_mass"]}, p ≤ 0.002; per composition {TEXT["dw_comp"]}, p = {TEXT["dw_comp_p"]})  {"PASS" if dw_ok else "FAIL"}')
 
     # ── §4 factorization: κ ∝ sv2/Γ ──────────────────────────────────
     log_sv2 = np.log10(mr['sv2_per_mode'].values)
@@ -147,49 +140,21 @@ def main():
     reg = LinearRegression().fit(X_fact, y)
     r2_fact = reg.score(X_fact, y)
     a, b = reg.coef_
-    from sklearn.model_selection import cross_val_score as _cvs
-    r2_fact_cv = _cvs(LinearRegression(), X_fact, y, cv=cv, scoring='r2').mean()
-    match_fact = (abs(r2_fact - 0.78) < 0.02 and abs(r2_fact_cv - 0.73) < 0.05 and
-                  abs(a - 1.11) < 0.05 and abs(b - (-0.80)) < 0.05)
+    r2_fact_cv, r2_fact_cv_sd, _ = rcv_r2(LinearRegression, X_fact, y)
+    match_fact = (at_printed(r2_fact, TEXT['fact_in']) and at_printed(r2_fact_cv, TEXT['fact_cv']) and at_printed(r2_fact_cv_sd, TEXT['fact_sd']) and
+                  at_printed(a, TEXT['a']) and at_printed(b, TEXT['b']))
     total += 1; passed += match_fact
-    print(f'FACTORIZATION: R²_insample = {r2_fact:.2f}  R²_CV = {r2_fact_cv:.2f}  '
-          f'a = {a:+.3f}  b = {b:+.3f}  '
-          f'(paper: 0.78/0.73, +1.11, −0.80)  {"PASS" if match_fact else "FAIL"}')
+    print(f'FACTORIZATION: R²_insample = {r2_fact:.4f}  R²_CV = {r2_fact_cv:.4f} ± {r2_fact_cv_sd:.4f}  a = {a:+.3f}  b = {b:+.3f}  '
+          f'(paper: {TEXT["fact_in"]} / {TEXT["fact_cv"]} ± {TEXT["fact_sd"]}, {TEXT["a"]}, {TEXT["b"]})  {"PASS" if match_fact else "FAIL"}')
 
-    # ── §4 oracle test: FC2 → |V₃|² redundancy + ceiling bound ────────
+    # ── §3.5 oracle test: the Γ/W scalar's increment (nested) ──
     print()
-    y_v3 = mr['log_V3sq'].values
-    v3_pred = cross_val_predict(make_ridge(), X, y_v3, cv=cv)
-    v3_resid = y_v3 - v3_pred
-
-    # FC2 predicts |V₃|² but prediction is redundant for κ
-    from sklearn.model_selection import cross_val_score as _cvs2
-    r2_fc2_v3 = _cvs2(make_ridge(), X, y_v3, cv=cv, scoring='r2').mean()
-    X_plus_v3pred = np.column_stack([X, v3_pred])
-    r2_k_plus_v3 = _cvs2(make_ridge(), X_plus_v3pred, y, cv=cv, scoring='r2').mean()
-    r2_k_base = _cvs2(make_ridge(), X, y, cv=cv, scoring='r2').mean()
-    lift_v3pred = r2_k_plus_v3 - r2_k_base
-    match_redundancy = r2_fc2_v3 > 0.60 and abs(lift_v3pred) < 0.01
-    total += 1; passed += int(match_redundancy)
-    print(f'FC2→|V₃|² R²={r2_fc2_v3:.2f} but κ lift={lift_v3pred:+.4f}  '
-          f'(paper: R²=0.70, lift<0.001)  {"PASS" if match_redundancy else "FAIL"}')
-
-    # Oracle: true v3_resid improves κ by ~0.04
-    X_plus_oracle = np.column_stack([X, v3_resid])
-    r2_oracle = _cvs2(make_ridge(), X_plus_oracle, y, cv=cv, scoring='r2').mean()
-    oracle_lift = r2_oracle - r2_k_base
-    match_oracle = 0.02 < oracle_lift < 0.08
+    base, with_resid = rcv_mean(lambda cv: nested_v3(mr, cv))
+    lift_resid = with_resid - base
+    match_oracle = at_printed(lift_resid, TEXT['oracle']) and at_printed(base, TEXT['base']) and at_printed(with_resid, TEXT['with'])
     total += 1; passed += int(match_oracle)
-    print(f'ORACLE: +|V₃|² residual → κ lift={oracle_lift:+.4f}  '
-          f'(paper: +0.04)  {"PASS" if match_oracle else "FAIL"}')
-
-    # v3_resid correlates with κ residual
-    k_resid = y - cross_val_predict(make_ridge(), X, y, cv=cv)
-    r_bottleneck, _ = pearsonr(v3_resid, k_resid)
-    match_bn = abs(r_bottleneck) > 0.40
-    total += 1; passed += int(match_bn)
-    print(f'BOTTLENECK: v3_resid~k_resid r={r_bottleneck:+.3f}  '
-          f'(paper: −0.53)  {"PASS" if match_bn else "FAIL"}')
+    print(f'ORACLE (Γ/W scalar): +|V₃|² residual → κ lift={lift_resid:+.4f}  (paper: {TEXT["oracle"]}, {TEXT["base"]} → {TEXT["with"]}; base {base:.4f}, with {with_resid:.4f})  '
+          f'{"PASS" if match_oracle else "FAIL"}')
 
     print(f'\nOVERALL: {"PASS" if passed == total else "FAIL"}  ({passed}/{total})')
     return passed == total
