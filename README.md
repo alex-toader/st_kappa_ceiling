@@ -2,7 +2,7 @@
 
 Harmonic force constants predict lattice thermal conductivity with R² = 0.86-0.89 across 749 crystalline solids spanning 4.7 orders of magnitude in kappa. The plateau persists across linear, ensemble, and neural network models, and lies below the central label-noise bound measured against an independent database. The remaining variance correlates with a transport-weighted cubic-coupling proxy.
 
-**Paper:** A. Toader, "What harmonic phonon calculations capture -- and miss -- about thermal conductivity" (2026).
+**Read the paper: [paper/main.pdf](paper/main.pdf)** (also as [Markdown](paper/main.md)). A. Toader, "What harmonic phonon calculations capture -- and miss -- about thermal conductivity" (2026).
 
 ## Structure
 
